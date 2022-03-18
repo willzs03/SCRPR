@@ -147,33 +147,14 @@ client = discord.Client(intents=intents)
 async def on_ready():
   print('We have logged in as {0.user}'.format(client))
   # Starts the 'tracking' loop
-  myLoop.start()
+  NFTLoop.start()
 
 @tasks.loop(minutes=db["interval"])
-async def myLoop():
+async def NFTLoop():
   """Goes through all the currently tracked collections and retrieves floor prices for each one. The notification interval is initially set to 60 minutes and can be changed. Time units are always in minutes.
   """
-  # Start of code to get channel for bot-commands
-  channel_id = ''
-  for channel in client.get_all_channels():
-    if channel.name == "bot-commands":
-      channel_id = channel.id
-  channel = client.get_channel(channel_id)
-  # End of code to get channel for bot-commands
-  data = get_data()
-  all_collections = db["collection"]
-  for i, collection in enumerate(all_collections):
-    floor_price = data[i]["floor_price"]
-    one_day_volume = data[i]["one_day_volume"]
-    one_day_change = data[i]["one_day_change"]
-    one_day_average_price = data[i]["one_day_average_price"]
-    floor_price = data[i]["floor_price"]
-    await channel.send("""{} statistics:
-                         floor price: {}
-                         24 hour volume: {}
-                         24 hour price change: {}
-                         24 hour avg price: {}
-                         """.format(collection, floor_price, one_day_volume, one_day_change, one_day_average_price))
+  channel = client.get_channel(get_channel_id())
+  await display_collection_stats()
 
 # -------------------------------------------------------
 # Start of template for embeds
@@ -193,6 +174,34 @@ async def myLoop():
     
 # End of template for embeds
 # -------------------------------------------------------
+
+async def display_collection_stats():
+  channel = client.get_channel(get_channel_id())
+  data = get_data()
+  all_collections = db["collection"]
+  for i, collection in enumerate(all_collections):
+    opensea_url = 'https://opensea.io/collection/' + collection
+    collection_info = get_collection_info(collection)
+    floor_price = round(data[i]["floor_price"], 2)
+    one_day_volume = round(data[i]["one_day_volume"], 2)
+    one_day_change = round(data[i]["one_day_change"], 2)
+    one_day_average_price = round(data[i]["one_day_average_price"], 2)
+
+    # ----- START EMBED -----
+    embed = discord.Embed(
+      title = 'Portfolio Notification on {}'.format(collection_info["name"]),
+      colour = discord.Colour.blue()
+    )
+    embed.set_footer(text='SCRPR MVP#1')
+    embed.set_author(name='Collection Information')
+    embed.set_thumbnail(url=collection_info["image_url"])
+    embed.add_field(name='Floor price', value='{}Ξ'.format(floor_price))
+    embed.add_field(name='24-hour volume', value='{}Ξ'.format(one_day_volume))
+    embed.add_field(name='24-hour price change', value='{}%'.format(one_day_change))
+    embed.add_field(name='24-hour average price', value='{}Ξ'.format(one_day_average_price))
+    embed.add_field(name='See more', value='[OpenSea]({})'.format(opensea_url))
+    # ----- END EMBED -----
+    await channel.send(embed=embed)
 
 async def display_help():
   channel = client.get_channel(get_channel_id())
@@ -220,9 +229,8 @@ async def display_add_collection_success(slug):
   channel = client.get_channel(get_channel_id())
   collection_info = get_collection_info(slug)
   opensea_url = 'https://opensea.io/collection/' + slug
-  # End of code to get channel for bot-commands
   embed = discord.Embed(
-    title = '{} is now being tracked'.format(slug),
+    title = '{} is now being tracked'.format(collection_info["name"]),
     colour = discord.Colour.blue()
   )
   embed.set_footer(text='SCRPR MVP#1')
@@ -246,6 +254,73 @@ async def display_add_collection_fail(type):
 
   await channel.send(embed=embed)
 
+async def display_remove_collection_success(slug):
+  channel = client.get_channel(get_channel_id())
+  collection_info = get_collection_info(slug)
+  opensea_url = 'https://opensea.io/collection/' + slug
+  embed = discord.Embed(
+    title = '{} is no longer being tracked'.format(collection_info["name"]),
+    colour = discord.Colour.blue()
+  )
+  embed.set_footer(text='SCRPR MVP#1')
+  embed.set_author(name='Remove')
+  embed.set_thumbnail(url=collection_info["image_url"])
+  embed.add_field(name='Links', value='[Discord Server]({}) \n [OpenSea]({})'.format(collection_info["discord_url"], opensea_url))
+  
+  await channel.send(embed=embed)
+
+async def display_remove_collection_fail(type):
+  channel = client.get_channel(get_channel_id())
+  embed = discord.Embed(
+    colour = discord.Colour.red()
+  )
+  embed.set_footer(text='SCRPR MVP#1')
+  embed.set_author(name='Remove')
+  if type == "no_exist":
+    embed.add_field(name='Error', value='Collection does not exist')
+  elif type == "not_tracked":
+    embed.add_field(name='Error', value='Collection not being tracked')
+
+  await channel.send(embed=embed)
+
+async def display_list(tracked_collections):
+  channel = client.get_channel(get_channel_id())
+  embed = discord.Embed(
+    title = 'Currently tracked collections',
+    colour = discord.Colour.blue()
+  )
+  embed.set_footer(text='SCRPR MVP#1')
+  embed.set_author(name='List')
+  if not tracked_collections:
+    embed.add_field(name='Information', value='Nothing being tracked')
+    await channel.send(embed=embed)
+    return
+  for item in tracked_collections:
+    collection_data = get_collection_info(item)
+    opensea_url = 'https://opensea.io/collection/' + item
+    embed.add_field(name='{}'.format(collection_data["name"]), value='[OpenSea]({})'.format(opensea_url))
+  await channel.send(embed=embed)
+  
+async def display_interval(new_interval):
+  channel = client.get_channel(get_channel_id())
+  embed = discord.Embed(
+    colour = discord.Colour.blue()
+  )
+  embed.set_footer(text='SCRPR MVP#1')
+  embed.set_author(name='Interval')
+  embed.add_field(name='Information', value='New interval set to `{} minute(s)`'.format(new_interval))
+  await channel.send(embed=embed)
+
+async def display_reset():
+  channel = client.get_channel(get_channel_id())
+  embed = discord.Embed(
+    colour = discord.Colour.blue()
+  )
+  embed.set_footer(text='SCRPR MVP#1')
+  embed.set_author(name='Reset')
+  embed.add_field(name='Information', value='Reset interval to `60 minutes` \n Cleared all tracked NFT collections and cryptocurrencies')
+  await channel.send(embed=embed)
+
 @client.event
 async def on_message(message):
   """Listener function to watch for commands.
@@ -262,27 +337,14 @@ async def on_message(message):
 
   # Current price command (!prices). Displays the prices at the time of command input for all tracked collections.
   if msg.startswith('!prices'):
-    data = get_data()
-    all_collections = db["collection"]
-    for i, collection in enumerate(all_collections):
-      floor_price = data[i]["floor_price"]
-      one_day_volume = data[i]["one_day_volume"]
-      one_day_change = data[i]["one_day_change"]
-      one_day_average_price = data[i]["one_day_average_price"]
-      floor_price = data[i]["floor_price"]
-      await message.channel.send("""{} statistics:
-                                 floor price: {}
-                                 24 hour volume: {}
-                                 24 hour price change: {}
-                                 24 hour avg price: {}
-                                 """.format(collection, floor_price, one_day_volume, one_day_change, one_day_average_price))
+    await display_collection_stats()
 
   # Shows all tracked collections
   if msg.startswith("!list"):
     collection = []
     if "collection" in db.keys():
       collection = db["collection"]
-    await message.channel.send(collection)
+    await display_list(collection)
     
   # Adds a collection to be tracked
   if msg.startswith("!add"):
@@ -305,33 +367,35 @@ async def on_message(message):
     collection = []
     # get the URL, trim to slug
     slug = msg.split("!remove ",1)[1].rsplit('/', 1)[-1]
+    if not check_collection(slug):
+      await display_remove_collection_fail("no_exist")
+      return
     if "collection" in db.keys():
       existence_check = db["collection"]
       if slug not in existence_check:
-        await message.channel.send("Collection not being tracked")
+        await display_remove_collection_fail("not_tracked")
         return
       remove_collection(slug)
       collection = db["collection"]
-    await message.channel.send("Collection deleted, see currently tracked collections below")
-    await message.channel.send(collection)
+    await display_remove_collection_success(slug)
 
   # Allows the user to change the notification interval. Input is always interpreted as minutes. Decimals are accepted. The bot displays the current price of all tracked collections
   if msg.startswith("!interval"):
     new_interval = float(msg.split("!interval ",1)[1])
     db["interval"] = new_interval
-    myLoop.change_interval(minutes=db["interval"])
-    myLoop.restart()
-    await message.channel.send("New interval set to `{} minute(s)`".format(new_interval))
+    NFTLoop.change_interval(minutes=db["interval"])
+    NFTLoop.restart()
+    await display_interval(new_interval)
 
   # Resets notification interval to 60 minutes and clears all tracked collections.
   if msg.startswith("!reset"):
     db["interval"] = 60
     db["collection"] = []
-    myLoop.change_interval(minutes=db["interval"])
-    myLoop.restart()
+    NFTLoop.change_interval(minutes=db["interval"])
+    NFTLoop.restart()
     db["cryptoCollection"] = []
     db["cryptoInfo"] = {}
-    await message.channel.send("Reset interval to `60 minutes` \n Cleared all tracked crypto and NFT collections")
+    await display_reset()
 
   if msg.startswith("!crypto add"):
     new_sym = msg.split("!crypto add ",1)[1]

@@ -77,7 +77,7 @@ def addCryptoToList(symbol):
   
 
 def get_data():
-  """Fetches and returns floor prices for all currently tracked collections.
+  """Fetches and returns data for all currently tracked collections.
   """
   # OpenSea API https://docs.opensea.io/reference/retrieving-collection-stats
   all_data = []
@@ -89,6 +89,15 @@ def get_data():
     response = json_data["stats"]
     all_data.append(response)
   return(all_data)
+
+def get_collection_info(slug):
+  """Fetches and returns JSON data for a particular collection.
+  """
+  url = "https://api.opensea.io/api/v1/collection/" + slug
+  response = requests.request("GET", url)
+  json_data = json.loads(response.text)["collection"]
+  return json_data
+
 
 def add_collection(slug):
   """Adds a collection to be tracked. Input can be the full URL or the slug (endpoint).
@@ -119,6 +128,15 @@ def check_collection(slug):
     return False
   return True
 
+def get_channel_id():
+  # Start of code to get channel for bot-commands
+  channel_id = ''
+  for channel in client.get_all_channels():
+    if channel.name == "bot-commands":
+      channel_id = channel.id
+  return channel_id
+  # End of code to get channel for bot-commands
+  
 # Tutorial https://www.youtube.com/watch?v=SPTfmiYiuok
 # This helped fix the bot https://stackoverflow.com/questions/70920148/pycord-message-content-is-empty/70920258
 intents = discord.Intents.all()
@@ -177,13 +195,7 @@ async def myLoop():
 # -------------------------------------------------------
 
 async def display_help():
-  # Start of code to get channel for bot-commands
-  channel_id = ''
-  for channel in client.get_all_channels():
-    if channel.name == "bot-commands":
-      channel_id = channel.id
-  channel = client.get_channel(channel_id)
-  # End of code to get channel for bot-commands
+  channel = client.get_channel(get_channel_id())
   embed = discord.Embed(
     title = 'Information about SCRPR',
     description = 'Welcome to SCRPR! This bot helps you keep track of NFT collection statistics and cryptocurrency prices. By default, you will be notified on prices for collections/crypto every `60 minutes`',
@@ -201,6 +213,36 @@ async def display_help():
   embed.add_field(name='!crypto add [symbol]', value='Adds a cryptocurrency to be tracked \n _Examples_ \n !crypto add `BTC`\n !crypto add `ETH`\n', inline=False)
   embed.add_field(name='!crypto remove [symbol]', value='Removes a tracked cryptocurrency \n _Examples_ \n !crypto remove `BTC` \n !crypto remove `ETH`', inline=False)
   embed.add_field(name='!crypto list', value='Shows all currently tracked cryptocurrencies')
+
+  await channel.send(embed=embed)
+
+async def display_add_collection_success(slug):
+  channel = client.get_channel(get_channel_id())
+  collection_info = get_collection_info(slug)
+  opensea_url = 'https://opensea.io/collection/' + slug
+  # End of code to get channel for bot-commands
+  embed = discord.Embed(
+    title = '{} is now being tracked'.format(slug),
+    colour = discord.Colour.blue()
+  )
+  embed.set_footer(text='SCRPR MVP#1')
+  embed.set_author(name='Add')
+  embed.set_thumbnail(url=collection_info["image_url"])
+  embed.add_field(name='Links', value='[Discord Server]({}) \n [OpenSea]({})'.format(collection_info["discord_url"], opensea_url))
+  
+  await channel.send(embed=embed)
+
+async def display_add_collection_fail(type):
+  channel = client.get_channel(get_channel_id())
+  embed = discord.Embed(
+    colour = discord.Colour.red()
+  )
+  embed.set_footer(text='SCRPR MVP#1')
+  embed.set_author(name='Add')
+  if type == "no_exist":
+    embed.add_field(name='Error', value='Collection does not exist')
+  elif type == "already_tracked":
+    embed.add_field(name='Error', value='Collection already being tracked')
 
   await channel.send(embed=embed)
 
@@ -241,7 +283,7 @@ async def on_message(message):
     if "collection" in db.keys():
       collection = db["collection"]
     await message.channel.send(collection)
-
+    
   # Adds a collection to be tracked
   if msg.startswith("!add"):
     # get the URL, trim to slug
@@ -249,14 +291,14 @@ async def on_message(message):
     collection = db["collection"]
     # check if collection doesn't exist
     if not check_collection(slug):
-      await message.channel.send("Collection doesn't exist")
+      await display_add_collection_fail("no_exist")
       return
     # check if collection is already being tracked
     if slug in collection:
-      await message.channel.send("Collection already being tracked")
+      await display_add_collection_fail("already_tracked")
       return
     add_collection(slug)
-    await message.channel.send("New collection added!")
+    await display_add_collection_success(slug)
 
   # Removes a tracked collection
   if msg.startswith("!remove"):

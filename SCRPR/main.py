@@ -13,7 +13,7 @@ from requests import Request, Session
 db["interval"] = 60
 
 def coinExists(sym):
-  """Returns True if coin exissts from coin market cap"""
+  """Returns True if coin exists from coin market cap"""
   url = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest'
   print(sym)
   params = {
@@ -59,8 +59,8 @@ def getCryptoData():
   cryptoInfo = {}
   for sym in symbols:
     name = sym
-    percentChange24hr = data['data'][name]['quote']['USD']['percent_change_24h']
-    currentPrice = data['data'][name]['quote']['USD']['price']
+    percentChange24hr = round(data['data'][name]['quote']['USD']['percent_change_24h'],2)
+    currentPrice = round(data['data'][name]['quote']['USD']['price'],2)
     cryptoInfo[sym] = {"24HourChange":percentChange24hr, "currentPrice": currentPrice}
   db["cryptoInfo"] = cryptoInfo
   return cryptoInfo
@@ -174,6 +174,59 @@ async def NFTLoop():
     
 # End of template for embeds
 # -------------------------------------------------------
+
+async def display_crypto_list(cryptoData):
+  channel = client.get_channel(get_channel_id())
+  cryptoDataKeys = db["cryptoCollection"]
+  for key in cryptoDataKeys:
+    priceChange = cryptoData[key]["24HourChange"]
+    currentPrice = cryptoData[key]["currentPrice"]
+    embed = discord.Embed(
+      title = 'Recent Price Movements on {}'.format(key),
+      colour = discord.Colour.blue()
+    )
+
+    embed.set_footer(text='SCRPR MVP#1')
+    embed.set_author(name='Crypto Information')
+    #embed.set_thumbnail(url=collection_info["image_url"])
+    embed.add_field(name='Current Price', value='${}'.format(currentPrice))
+    embed.add_field(name='24-hour price change', value='{}%'.format(priceChange))
+    await channel.send(embed=embed)
+
+async def display_crypto_fail(type):
+  channel = client.get_channel(get_channel_id())
+  embed = discord.Embed(
+    title = 'Crypto add',
+    colour = discord.Colour.red()
+  )
+  embed.set_footer(text='SCRPR MVP#1')
+  if type == "no_exist":
+    embed.add_field(name='Error', value='Coin does not exist')
+  elif type == "already_tracked":
+    embed.add_field(name='Error', value='Coin already being tracked')
+  await channel.send(embed=embed)
+
+async def display_crypto_remove_fail():
+  channel = client.get_channel(get_channel_id())
+  embed = discord.Embed(
+    title = 'Crypto remove',
+    color = discord.Colour.red()
+  )
+
+  embed.set_footer(text='SCRPR MVP#1')
+  embed.add_field(name="ERROR", value="Coin was not being tracked")
+  await channel.send(embed=embed)
+
+async def display_crypto_remove_success():
+  channel = client.get_channel(get_channel_id())
+  embed = discord.Embed(
+    title = 'Crypto remove',
+    color = discord.Colour.blue()
+  )
+
+  embed.set_footer(text='SCRPR MVP#1')
+  embed.add_field(name="Success", value="Coin was no longer being tracked")
+  await channel.send(embed=embed)
 
 async def display_collection_stats():
   channel = client.get_channel(get_channel_id())
@@ -400,20 +453,14 @@ async def on_message(message):
   if msg.startswith("!crypto add"):
     new_sym = msg.split("!crypto add ",1)[1]
     if (coinExists(new_sym) == False):
-      await message.channel.send("Coin does not exist!")
+      await display_crypto_fail("no_exist")
     elif ("cryptoCollection" in db.keys() and new_sym in db["cryptoCollection"])  :
       print(db["cryptoCollection"])
-      await message.channel.send("Already tracking coin!")
+      await display_crypto_fail("already_tracked")
     else:
       addCryptoToList(new_sym)
       cryptoData = getCryptoData()
-      for key in cryptoData:
-        priceChange = cryptoData[key]["24HourChange"]
-        currentPrice = cryptoData[key]["currentPrice"]
-        await message.channel.send(
-        """{} price: ${}
-        24hr price change: ${}
-        """.format(key, currentPrice, priceChange))
+      await display_crypto_list(cryptoData)
     
   if msg.startswith("!crypto list"):
     if "cryptoInfo" not in db.keys():
@@ -421,21 +468,15 @@ async def on_message(message):
     else:
       cryptoDataKeys = db["cryptoCollection"]
       cryptoData = db["cryptoInfo"]
-      for key in cryptoDataKeys:
-        priceChange = cryptoData[key]["24HourChange"]
-        currentPrice = cryptoData[key]["currentPrice"]
-        await message.channel.send(
-          """{} price: ${}
-          24hr price change: ${}
-          """.format(key, currentPrice, priceChange))
+      await display_crypto_list(cryptoData)
 
   if msg.startswith("!crypto remove"):
     del_sym = msg.split("!crypto remove ",1)[1]
     if ("cryptoCollection" not in db.keys() or del_sym not in db["cryptoCollection"]):
-      await message.channel.send("Coin was not being tracked")
+      await display_crypto_remove_fail()
     else:
       db["cryptoCollection"].remove(del_sym)
-      await message.channel.send("No longer tracking {}".format(del_sym))
+      await display_crypto_remove_success()
       
     
 # To keep the bot running 24/7 and check for rate limits.

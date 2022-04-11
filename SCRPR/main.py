@@ -65,6 +65,23 @@ def getCryptoData():
   db["cryptoInfo"] = cryptoInfo
   return cryptoInfo
 
+def getETHPrice():
+  """Fetches current ETH prices in USD."""
+  url = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest'
+  params = {
+    "symbol": "ETH"
+  }
+  headers = {
+    'Accepts': 'application/json',
+    'X-CMC_PRO_API_KEY': '48ca8a26-d287-45bf-9ca2-b35926510638',
+  }
+  session = Session()
+  session.headers.update(headers)
+  response = session.get(url, params=params)
+  data = json.loads(response.text)
+  ETHPrice = round(data['data']['ETH']['quote']['USD']['price'],2)
+  db["ETHPrice"] = ETHPrice
+
 def addCryptoToList(symbol):
   """add it's crypto to list of cryptos tracked """
 
@@ -128,6 +145,12 @@ def check_collection(slug):
     return False
   return True
 
+def check_interval(user_interval):
+  """Checks if the interval used in the !interval command is valid. Valid is defined as over 1.00 minutes and under 10800.00 minutes (1 week)"""
+  if (user_interval < 1.00 or user_interval > 10800.00):
+    return False
+  return True
+
 def get_channel_id():
   # Start of code to get channel for bot-commands
   channel_id = ''
@@ -148,6 +171,7 @@ async def on_ready():
   print('We have logged in as {0.user}'.format(client))
   # Starts the 'tracking' loop
   NFTLoop.start()
+  await display_landing_help()
 
 @tasks.loop(minutes=db["interval"])
 async def NFTLoop():
@@ -155,6 +179,8 @@ async def NFTLoop():
   """
   channel = client.get_channel(get_channel_id())
   await display_collection_stats()
+  cryptoData = getCryptoData()
+  await display_crypto_list(cryptoData)
 
 # -------------------------------------------------------
 # Start of template for embeds
@@ -174,6 +200,17 @@ async def NFTLoop():
     
 # End of template for embeds
 # -------------------------------------------------------
+
+async def display_landing_help():
+  channel = client.get_channel(get_channel_id())
+  embed = discord.Embed(
+    title = 'Type `!help` to get started with SCRPR!',
+    colour = discord.Colour.yellow()
+  )
+  embed.set_footer(text='SCRPR MVP#1')
+  embed.set_author(name='SCRPR Information')
+  
+  await channel.send(embed=embed)
 
 async def display_crypto_list(cryptoData):
   channel = client.get_channel(get_channel_id())
@@ -231,6 +268,8 @@ async def display_crypto_remove_success():
 async def display_collection_stats():
   channel = client.get_channel(get_channel_id())
   data = get_data()
+  getETHPrice()
+  ETHPrice = db["ETHPrice"]
   all_collections = db["collection"]
   for i, collection in enumerate(all_collections):
     opensea_url = 'https://opensea.io/collection/' + collection
@@ -248,10 +287,10 @@ async def display_collection_stats():
     embed.set_footer(text='SCRPR MVP#1')
     embed.set_author(name='Collection Information')
     embed.set_thumbnail(url=collection_info["image_url"])
-    embed.add_field(name='Floor price', value='{}Ξ'.format(floor_price))
-    embed.add_field(name='24-hour volume', value='{}Ξ'.format(one_day_volume))
+    embed.add_field(name='Floor price', value='{}Ξ | ${}'.format(floor_price, "{:,}".format(round(floor_price*ETHPrice, 2))))
+    embed.add_field(name='24-hour volume', value='{}Ξ | ${}'.format(one_day_volume, "{:,}".format(round(one_day_volume*ETHPrice, 2))))
     embed.add_field(name='24-hour price change', value='{}%'.format(one_day_change))
-    embed.add_field(name='24-hour average price', value='{}Ξ'.format(one_day_average_price))
+    embed.add_field(name='24-hour average price', value='{}Ξ | ${}'.format(one_day_average_price, "{:,}".format(round(one_day_average_price*ETHPrice, 2))))
     embed.add_field(name='See more', value='[OpenSea]({})'.format(opensea_url))
     # ----- END EMBED -----
     await channel.send(embed=embed)
@@ -364,6 +403,16 @@ async def display_interval(new_interval):
   embed.add_field(name='Information', value='New interval set to `{} minute(s)`'.format(new_interval))
   await channel.send(embed=embed)
 
+async def display_invalid_interval():
+  channel = client.get_channel(get_channel_id())
+  embed = discord.Embed(
+    colour = discord.Colour.red()
+  )
+  embed.set_footer(text='SCRPR MVP#1')
+  embed.set_author(name='Interval')
+  embed.add_field(name='Information', value='Invalid Interval. Minimum value is 1.00 minutes and maximum value is 10080.00 minutes (1 week). Please do not input non-numerical values.')
+  await channel.send(embed=embed)
+
 async def display_reset():
   channel = client.get_channel(get_channel_id())
   embed = discord.Embed(
@@ -398,7 +447,7 @@ async def on_message(message):
     if "collection" in db.keys():
       collection = db["collection"]
     await display_list(collection)
-    
+  
   # Adds a collection to be tracked
   if msg.startswith("!add"):
     # get the URL, trim to slug
@@ -434,11 +483,17 @@ async def on_message(message):
 
   # Allows the user to change the notification interval. Input is always interpreted as minutes. Decimals are accepted. The bot displays the current price of all tracked collections
   if msg.startswith("!interval"):
-    new_interval = float(msg.split("!interval ",1)[1])
-    db["interval"] = new_interval
-    NFTLoop.change_interval(minutes=db["interval"])
-    NFTLoop.restart()
-    await display_interval(new_interval)
+    new_interval = msg.split("!interval ",1)[1]
+    # check if interval is invalid
+    if (type(new_interval) != float or not check_interval(new_interval)):
+      await display_invalid_interval()
+    # Invalid interval, display error message
+    else:
+      new_interval = float(new_interval)
+      db["interval"] = new_interval
+      NFTLoop.change_interval(minutes=db["interval"])
+      NFTLoop.restart()
+      await display_interval(new_interval)
 
   # Resets notification interval to 60 minutes and clears all tracked collections.
   if msg.startswith("!reset"):
